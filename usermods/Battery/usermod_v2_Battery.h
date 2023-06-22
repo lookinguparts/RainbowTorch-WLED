@@ -15,6 +15,12 @@ class UsermodBattery : public Usermod
   private:
     // battery pin can be defined in my_config.h
     int8_t batteryPin = USERMOD_BATTERY_MEASUREMENT_PIN;
+    #ifdef USERMOD_BATTERY_LED_POWER_ENABLE_PIN
+    int8_t ledPowerEnablePin = USERMOD_BATTERY_LED_POWER_ENABLE_PIN;
+    #else
+    int8_t ledPowerEnablePin = -1;
+    #endif
+
     // how often to read the battery voltage
     unsigned long readingInterval = USERMOD_BATTERY_MEASUREMENT_INTERVAL;
     unsigned long nextReadTime = 0;
@@ -44,7 +50,9 @@ class UsermodBattery : public Usermod
 
     // auto shutdown/shutoff/master off feature
     bool autoOffEnabled = USERMOD_BATTERY_AUTO_OFF_ENABLED;
+    bool turnedOff = false;
     int8_t autoOffThreshold = USERMOD_BATTERY_AUTO_OFF_THRESHOLD;
+    int8_t autoOffRecovery = USERMOD_BATTERY_AUTO_OFF_RECOVERY;
 
     // low power indicator feature
     bool lowPowerIndicatorEnabled = USERMOD_BATTERY_LOW_POWER_INDICATOR_ENABLED;
@@ -63,7 +71,9 @@ class UsermodBattery : public Usermod
     static const char _name[];
     static const char _readInterval[];
     static const char _enabled[];
+    static const char _alpha[];
     static const char _threshold[];
+    static const char _recovery[];
     static const char _preset[];
     static const char _duration[];
     static const char _init[];
@@ -87,7 +97,21 @@ class UsermodBattery : public Usermod
      */
     void turnOff()
     {
+      turnedOff = true;
       bri = 0;
+      if (ledPowerEnablePin != -1) {
+        digitalWrite(ledPowerEnablePin, 0);
+      }
+      stateUpdated(CALL_MODE_DIRECT_CHANGE);
+    }
+
+    void turnOn()
+    {
+      turnedOff = false;
+      bri = briLast;
+      if (ledPowerEnablePin != -1) {
+        digitalWrite(ledPowerEnablePin, 1);
+      }
       stateUpdated(CALL_MODE_DIRECT_CHANGE);
     }
 
@@ -137,18 +161,31 @@ class UsermodBattery : public Usermod
       #ifdef ARDUINO_ARCH_ESP32
         bool success = false;
         DEBUG_PRINTLN(F("Allocating battery pin..."));
-        if (batteryPin >= 0 && digitalPinToAnalogChannel(batteryPin) >= 0) 
+        if (batteryPin >= 0 && digitalPinToAnalogChannel(batteryPin) >= 0) {
           if (pinManager.allocatePin(batteryPin, false, PinOwner::UM_Battery)) {
             DEBUG_PRINTLN(F("Battery pin allocation succeeded."));
             success = true;
             voltage = readVoltage();
           }
 
+          if (success && ledPowerEnablePin != -1
+              && !pinManager.allocatePin(ledPowerEnablePin, false, PinOwner::UM_Battery)) {
+
+            DEBUG_PRINTLN(F("LED power enable pin allocation failed."));
+            success = false;
+          }
+        }
+
         if (!success) {
           DEBUG_PRINTLN(F("Battery pin allocation failed."));
           batteryPin = -1;  // allocation failed
         } else {
           pinMode(batteryPin, INPUT);
+
+          if (ledPowerEnablePin != -1) {
+            pinMode(ledPowerEnablePin, OUTPUT);
+            digitalWrite(ledPowerEnablePin, 1);
+          }
         }
       #else //ESP8266 boards have only one analog input pin A0
         pinMode(batteryPin, INPUT);
@@ -227,8 +264,12 @@ class UsermodBattery : public Usermod
       // }
 
       // Auto off -- Master power off
-      if (autoOffEnabled && (autoOffThreshold >= batteryLevel))
+      if (autoOffEnabled && autoOffThreshold >= batteryLevel) {
         turnOff();
+      }
+      if (turnedOff && autoOffRecovery < batteryLevel) {
+        turnOn();
+      }
 
 #ifndef WLED_DISABLE_MQTT
       // SmartHome stuff
@@ -371,10 +412,12 @@ class UsermodBattery : public Usermod
       battery[F("calibration")] = calibration;
       battery[F("voltage-multiplier")] = voltageMultiplier;
       battery[FPSTR(_readInterval)] = readingInterval;
+      battery[FPSTR(_alpha)] = alpha;
       
       JsonObject ao = battery.createNestedObject(F("auto-off"));               // auto off section
       ao[FPSTR(_enabled)] = autoOffEnabled;
       ao[FPSTR(_threshold)] = autoOffThreshold;
+      ao[FPSTR(_recovery)] = autoOffRecovery;
 
       JsonObject lp = battery.createNestedObject(F("indicator"));    // low power section
       lp[FPSTR(_enabled)] = lowPowerIndicatorEnabled;
@@ -394,7 +437,9 @@ class UsermodBattery : public Usermod
       oappend(SET_F("addInfo('Battery:max-voltage', 1, 'v');"));
       oappend(SET_F("addInfo('Battery:capacity', 1, 'mAh');"));
       oappend(SET_F("addInfo('Battery:interval', 1, 'ms');"));
+      oappend(SET_F("addInfo('Battery:alpha', 1, '');"));
       oappend(SET_F("addInfo('Battery:auto-off:threshold', 1, '%');"));
+      oappend(SET_F("addInfo('Battery:auto-off:recovery', 1, '%');"));
       oappend(SET_F("addInfo('Battery:indicator:threshold', 1, '%');"));
       oappend(SET_F("addInfo('Battery:indicator:duration', 1, 's');"));
       
@@ -451,10 +496,12 @@ class UsermodBattery : public Usermod
       setCalibration(battery[F("calibration")] | calibration);
       setVoltageMultiplier(battery[F("voltage-multiplier")] | voltageMultiplier);
       setReadingInterval(battery[FPSTR(_readInterval)] | readingInterval);
+      setSmoothingAlpha(battery[FPSTR(_alpha)] | alpha);
 
       JsonObject ao = battery[F("auto-off")];
       setAutoOffEnabled(ao[FPSTR(_enabled)] | autoOffEnabled);
       setAutoOffThreshold(ao[FPSTR(_threshold)] | autoOffThreshold);
+      setAutoOffRecovery(ao[FPSTR(_recovery)] | autoOffRecovery);
 
       JsonObject lp = battery[F("indicator")];
       setLowPowerIndicatorEnabled(lp[FPSTR(_enabled)] | lowPowerIndicatorEnabled);
@@ -550,6 +597,14 @@ class UsermodBattery : public Usermod
     void setReadingInterval(unsigned long newReadingInterval)
     {
       readingInterval = max((unsigned long)3000, newReadingInterval);
+    }
+
+    /*
+     * Exponential smoothing alpha parameter
+     */
+    void setSmoothingAlpha(float alpha)
+    {
+      alpha = min(1.0f, max(0.0f, alpha));
     }
 
 
@@ -697,6 +752,14 @@ class UsermodBattery : public Usermod
       autoOffThreshold  = lowPowerIndicatorEnabled /*&& autoOffEnabled*/ ? min(lowPowerIndicatorThreshold-1, (int)autoOffThreshold) : autoOffThreshold;
     }
 
+    /*
+     * Set auto-off recovery threshold in percent (0-100) 
+     */
+    void setAutoOffRecovery(int8_t recovery)
+    {
+      autoOffRecovery = min((int8_t)100, max((int8_t)0, recovery));
+    }
+
 
     /*
      * Get low-power-indicator feature enabled status
@@ -781,7 +844,9 @@ class UsermodBattery : public Usermod
 const char UsermodBattery::_name[]          PROGMEM = "Battery";
 const char UsermodBattery::_readInterval[]  PROGMEM = "interval";
 const char UsermodBattery::_enabled[]       PROGMEM = "enabled";
+const char UsermodBattery::_alpha[]         PROGMEM = "alpha";
 const char UsermodBattery::_threshold[]     PROGMEM = "threshold";
+const char UsermodBattery::_recovery[]      PROGMEM = "recovery";
 const char UsermodBattery::_preset[]        PROGMEM = "preset";
 const char UsermodBattery::_duration[]      PROGMEM = "duration";
 const char UsermodBattery::_init[]          PROGMEM = "init";
