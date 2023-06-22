@@ -51,6 +51,16 @@ void IRAM_ATTR dmpDataReady() {
     mpuInterrupt = true;
 }
 
+//NOTE: some of these can be removed to save memory, processing time
+//      if the measurement isn't needed
+Quaternion qat;         // [w, x, y, z]         quaternion container
+float euler[3];         // [psi, theta, phi]    Euler angle container
+float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container
+VectorInt16 aa;         // [x, y, z]            accel sensor measurements
+VectorInt16 gy;         // [x, y, z]            gyro sensor measurements
+VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
+VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
+VectorFloat gravity;    // [x, y, z]            gravity vector
 
 class MPU6050Driver : public Usermod {
   private:
@@ -65,18 +75,11 @@ class MPU6050Driver : public Usermod {
     uint16_t fifoCount;     // count of all bytes currently in FIFO
     uint8_t fifoBuffer[64]; // FIFO storage buffer
 
-    //NOTE: some of these can be removed to save memory, processing time
-    //      if the measurement isn't needed
-    Quaternion qat;         // [w, x, y, z]         quaternion container
-    float euler[3];         // [psi, theta, phi]    Euler angle container
-    float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container
-    VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-    VectorInt16 gy;         // [x, y, z]            gyro sensor measurements
-    VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-    VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
-    VectorFloat gravity;    // [x, y, z]            gravity vector
-
-    static const int INTERRUPT_PIN = 15; // use pin 15 on ESP8266
+    #ifdef USERMOD_MPU6050_INTERRUPT_PIN
+      static const int INTERRUPT_PIN = USERMOD_MPU6050_INTERRUPT_PIN;
+    #else
+      static const int INTERRUPT_PIN = 15; // use pin 15 on ESP8266
+    #endif
 
   public:
     //Functions called by WLED
@@ -206,6 +209,7 @@ class MPU6050Driver : public Usermod {
       JsonObject user = root["u"];
       if (user.isNull()) user = root.createNestedObject("u");
 
+      /*
       JsonObject imu_meas = user.createNestedObject("IMU");
       JsonArray quat_json = imu_meas.createNestedArray("Quat");
       quat_json.add(qat.w);
@@ -240,6 +244,7 @@ class MPU6050Driver : public Usermod {
       orient_json.add(ypr[0]);
       orient_json.add(ypr[1]);
       orient_json.add(ypr[2]);
+      */
     }
 
 
