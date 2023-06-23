@@ -7339,6 +7339,35 @@ uint16_t mode_2DAkemi(void) {
 } // mode_2DAkemi
 static const char _data_FX_MODE_2DAKEMI[] PROGMEM = "Akemi@Color speed,Dance;Head palette,Arms & Legs,Eyes & Mouth;Face palette;2f;si=0"; //beatsin
 
+#include "MPU6050_6Axis_MotionApps20.h"
+extern VectorFloat mpu_gravity;
+uint16_t mode_torch(void) {
+  const int angle_offset = SEGMENT.speed;
+  const int start_index = 12;
+  const int end_index = SEGLEN - 9;
+  const bool flip_x = SEGMENT.check1;
+  const bool flip_y = SEGMENT.check2;
+  float leds_around = SEGMENT.custom1 / 10.f;
+  float angle_width = SEGMENT.intensity * PI * 2 / 255.f;
+
+  float current_angle = fmodf(atan2(mpu_gravity.x * (flip_x ? -1 : 1), mpu_gravity.z) + angle_offset * PI * 2 / 255, 2 * PI);
+  float min_angle = fmodf(current_angle - angle_width, 2 * PI);
+  float max_angle = fmodf(current_angle + angle_width, 2 * PI);
+
+  SEGMENT.fill(0);
+
+  for (int i = start_index; i < end_index; ++i) {
+    float led_angle = (i - start_index) * 2 * PI / (leds_around + 0.001f);
+    if (fmodf(led_angle - min_angle, 2 * PI) <= angle_width) {
+      uint8_t b = 255 - (int)(255 * fabs(fmodf(led_angle - current_angle, 2 * PI)) / (angle_width + 0.001f) * 2);
+      SEGMENT.setPixelColor(i, SEGMENT.color_from_palette(0, false, PALETTE_SOLID_WRAP, 0, b));
+    }
+  }
+
+  return FRAMETIME;
+} // mode_torch
+static const char _data_FX_MODE_TORCH[] PROGMEM = "Lighthouse@Offset,Width,LedsAroundx10,,,FlipX,FlipY;;sx=0,ix=42,c1=145";
+
 
 // Distortion waves - ldirko
 // https://editor.soulmatelights.com/gallery/1089-distorsion-waves
@@ -7822,6 +7851,8 @@ void WS2812FX::setupEffectData() {
   addEffect(FX_MODE_2DWAVINGCELL, &mode_2Dwavingcell, _data_FX_MODE_2DWAVINGCELL);
 
   addEffect(FX_MODE_2DAKEMI, &mode_2DAkemi, _data_FX_MODE_2DAKEMI); // audio
+
+  addEffect(FX_MODE_TORCH, &mode_torch, _data_FX_MODE_TORCH);
 #endif // WLED_DISABLE_2D
 
 }

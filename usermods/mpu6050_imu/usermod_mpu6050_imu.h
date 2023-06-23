@@ -60,7 +60,7 @@ VectorInt16 aa;         // [x, y, z]            accel sensor measurements
 VectorInt16 gy;         // [x, y, z]            gyro sensor measurements
 VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
 VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
-VectorFloat gravity;    // [x, y, z]            gravity vector
+VectorFloat mpu_gravity;    // [x, y, z]            gravity vector
 
 class MPU6050Driver : public Usermod {
   private:
@@ -191,12 +191,12 @@ class MPU6050Driver : public Usermod {
         //      if the measurement isn't needed
         mpu.dmpGetQuaternion(&qat, fifoBuffer);
         mpu.dmpGetEuler(euler, &qat);
-        mpu.dmpGetGravity(&gravity, &qat);
+        mpu.dmpGetGravity(&mpu_gravity, &qat);
         mpu.dmpGetGyro(&gy, fifoBuffer);
         mpu.dmpGetAccel(&aa, fifoBuffer);
-        mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+        mpu.dmpGetLinearAccel(&aaReal, &aa, &mpu_gravity);
         mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &qat);
-        mpu.dmpGetYawPitchRoll(ypr, &qat, &gravity);
+        mpu.dmpGetYawPitchRoll(ypr, &qat, &mpu_gravity);
       }
     }
 
@@ -209,6 +209,12 @@ class MPU6050Driver : public Usermod {
       JsonObject user = root["u"];
       if (user.isNull()) user = root.createNestedObject("u");
 
+      JsonArray gx = user.createNestedArray("gx");
+      gx.add(mpu_gravity.x);
+      JsonArray gy = user.createNestedArray("gy");
+      gy.add(mpu_gravity.y);
+      JsonArray gz = user.createNestedArray("gz");
+      gz.add(mpu_gravity.z);
       /*
       JsonObject imu_meas = user.createNestedObject("IMU");
       JsonArray quat_json = imu_meas.createNestedArray("Quat");
